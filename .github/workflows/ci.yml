@@ -534,7 +534,7 @@ jobs:
       - name: Post benchmark results to PR
         if: always() && github.event_name == 'pull_request' && hashFiles('contracts/target/escrow-bench-report.md') != ''
         continue-on-error: true # fork PRs get a read-only token
-        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v9
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
         with:
           script: |
             const body = require("fs").readFileSync("contracts/target/escrow-bench-report.md", "utf8");
