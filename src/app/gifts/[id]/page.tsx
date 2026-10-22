@@ -38,7 +38,9 @@ async function fetchGift(id: string): Promise<Gift | null> {
   const res = await fetch(`${baseUrl}/api/v1/gifts/${id}`, {
     cache: "no-store",
   });
-  if (!res.ok) return null;
+  if (res.status === 404) return null;
+  // Other failures surface via error.tsx so the user can retry
+  if (!res.ok) throw new Error(`Failed to load gift (${res.status})`);
   const json = await res.json();
   return json.success ? (json.data as Gift) : null;
 }

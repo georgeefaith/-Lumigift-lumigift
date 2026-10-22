@@ -5,6 +5,7 @@ import { getGiftById, hashPhone } from "@/server/services/gift.service";
 import { claimGift } from "@/server/services/claim.service";
 import { claimGiftSchema } from "@/types/schemas";
 import { withErrorHandler, withCsrf, validateBody } from "@/server/middleware";
+import { checkClaimAttempt, recordClaimFailure } from "@/server/services/claim-guard.service";
 import { getInvitationByPhoneAndGift, claimInvitation } from "@/server/services/invitation.service";
 import type { ApiResponse } from "@/types";
 
@@ -19,6 +20,17 @@ export const POST = withErrorHandler(
     }
 
     const { params } = context as { params: { id: string } };
+    const userId = (session.user as { id?: string }).id;
+
+    // Brute-force protection (Issue #378)
+    const ip = req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "unknown";
+    const attempt = checkClaimAttempt(ip);
+    if (!attempt.allowed) {
+      return NextResponse.json<ApiResponse<never>>(
+        { success: false, error: "Too many claim attempts. Please try again later." },
+        { status: 429, headers: { "Retry-After": String(Math.ceil(attempt.retryAfterMs / 1000)) } }
+      );
+    }
 
     const validation = await validateBody(req, claimGiftSchema, { giftId: params.id });
     if (!validation.success) return validation.response;
@@ -29,6 +41,7 @@ export const POST = withErrorHandler(
 
     // Return 404 for non-existent or cross-user guesses (avoids enumeration)
     if (!gift) {
+      recordClaimFailure(ip, userId, giftId);
       return NextResponse.json<ApiResponse<never>>(
         { success: false, error: "Gift not found" },
         { status: 404 }
@@ -43,6 +56,7 @@ export const POST = withErrorHandler(
     // treated exactly like a mismatch (pentest finding PT-01).
     const phone = (session.user as { phone?: string }).phone;
     if (!phone || gift.recipientPhoneHash !== hashPhone(phone)) {
+      recordClaimFailure(ip, userId, giftId);
       return NextResponse.json<ApiResponse<never>>(
         { success: false, error: "Gift not found" },
         { status: 404 }
