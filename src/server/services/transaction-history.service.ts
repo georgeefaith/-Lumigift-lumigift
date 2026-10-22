@@ -4,7 +4,7 @@
  * Provides paginated transaction history and structured receipt data for gifts.
  * Queries the PostgreSQL database via the existing pool from @/lib/db.
  */
-import pool from "@/lib/db";
+import { readPool } from "@/lib/db";
 import { AppError, ERROR_CODES } from "@/server/errors";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -100,7 +100,7 @@ export async function getTransactionHistory(
   `;
 
   const [dataResult, countResult] = await Promise.all([
-    pool.query<{
+    readPool.query<{
       giftId: string;
       amount: number;
       provider: string;
@@ -108,7 +108,7 @@ export async function getTransactionHistory(
       status: string;
       createdAt: Date;
     }>(dataQuery, params),
-    pool.query<{ total: string }>(countQuery, params),
+    readPool.query<{ total: string }>(countQuery, params),
   ]);
 
   const total = parseInt(countResult.rows[0]?.total ?? "0", 10);
@@ -140,11 +140,11 @@ export async function getTransactionHistory(
  * @param giftId - UUID of the gift.
  * @param userId - UUID of the requesting user (must be the sender).
  * @returns A {@link ReceiptData} object with all billing and chain details.
- * @throws {AppError} FORBIDDEN if the caller is not the sender.
+ * @throws {AppError} FORBIDDEN if the caller is neither the sender nor the recipient.
  * @throws {AppError} NOT_FOUND if the gift does not exist.
  */
 export async function generateReceiptData(giftId: string, userId: string): Promise<ReceiptData> {
-  const result = await pool.query<{
+  const result = await readPool.query<{
     giftId: string;
     amountNgn: number;
     amountUsdc: string;
@@ -157,6 +157,7 @@ export async function generateReceiptData(giftId: string, userId: string): Promi
     createdAt: Date;
     completedAt: Date | null;
     senderId: string;
+    recipientPhoneHash: string | null;
   }>(
     `SELECT
        g.id                       AS "giftId",
@@ -170,7 +171,8 @@ export async function generateReceiptData(giftId: string, userId: string): Promi
        g.recipient_name           AS "recipientName",
        g.created_at               AS "createdAt",
        g.updated_at               AS "completedAt",
-       g.sender_id                AS "senderId"
+       g.sender_id                AS "senderId",
+       g.recipient_phone_hash     AS "recipientPhoneHash"
      FROM gifts g
      LEFT JOIN payments p ON p.gift_id = g.id
      LEFT JOIN users su ON su.id = g.sender_id
@@ -185,7 +187,9 @@ export async function generateReceiptData(giftId: string, userId: string): Promi
     throw new AppError(ERROR_CODES.GIFT_NOT_FOUND, "Gift not found", 404);
   }
 
-  if (row.senderId !== userId) {
+  const isSender = row.senderId === userId;
+  const isRecipient = !!userPhoneHash && row.recipientPhoneHash === userPhoneHash;
+  if (!isSender && !isRecipient) {
     throw new AppError(ERROR_CODES.FORBIDDEN, "Forbidden", 403);
   }
 

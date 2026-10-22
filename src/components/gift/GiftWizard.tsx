@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { createGiftSchema, type CreateGiftFormInput } from "@/types/schemas";
@@ -14,6 +14,7 @@ import { useGiftDraft } from "@/hooks/useGiftDraft";
 import { TemplateSelector } from "./TemplateSelector";
 import { WizardProgress } from "./WizardProgress";
 import { GiftPreviewCard } from "./GiftPreviewCard";
+import { ThemePicker } from "./ThemePicker";
 import { BLANK_TEMPLATE, type GiftTemplate } from "@/lib/giftTemplates";
 import styles from "./GiftWizard.module.css";
 
@@ -37,50 +38,51 @@ const STEP_REVIEW = 4;
 type MutationOutcome = "idle" | "pending" | "unknown" | "error" | "success";
 
 export function GiftWizard() {
-  const { readDraft, saveDraft, clearDraft } = useGiftDraft();
-
-  // Initialise step from draft (if available) so the wizard resumes after refresh
-  const [step, setStep] = useState<number>(() => {
-    const draft = readDraft();
-    // Never restore directly to the review step — require the user to
-    // complete the flow again so no stale data is submitted.
-    if (draft && draft.step > STEP_OCCASION && draft.step < STEP_REVIEW) {
-      return draft.step;
-    }
-    return STEP_OCCASION;
-  });
-
-  const [template, setTemplate] = useState<GiftTemplate>(BLANK_TEMPLATE);
-  const [error, setError] = useState<string | null>(null);
-  const [mutationOutcome, setMutationOutcome] = useState<MutationOutcome>("idle");
-  const [navigating, setNavigating] = useState(false);
-  const [loading, setLoading] = useState(false);
-
-  const { isOnline } = useNetworkStatus();
-
-  const draft = readDraft();
-
+  const { draft, saveDraft, clearDraft } = useGiftDraft();
   const {
     register,
     handleSubmit,
     trigger,
     getValues,
     setValue,
+    watch,
     formState: { errors },
   } = useForm<CreateGiftFormInput>({
     resolver: zodResolver(createGiftSchema),
     defaultValues: {
-      paymentProvider: "paystack",
+      paymentProvider: draft?.paymentProvider ?? "paystack",
       recipientIsRegistered: false,
-      // Restore safe draft fields — phone is intentionally excluded
-      recipientName: draft?.recipientName ?? "",
-      recipientEmail: draft?.recipientEmail ?? "",
-      amountNgn: draft?.amountNgn,
-      message: draft?.message ?? "",
-      unlockAt: draft?.unlockAt ?? "",
+      recipientName: "",
+      recipientEmail: "",
+      amountNgn: undefined,
+      message: "",
+      unlockAt: "",
     },
     mode: "onTouched",
   });
+
+  // Initialise step from draft (if available) so the wizard resumes after refresh.
+  // Also re-sync step and form values whenever the draft changes — this covers
+  // both the initial localStorage load (mount) and cross-tab storage events.
+  const [step, setStep] = useState<number>(STEP_OCCASION);
+
+  useEffect(() => {
+    if (!draft) return;
+    // Never restore directly to the review step — require the user to complete
+    // the flow again so no stale data is submitted.
+    if (draft.step > STEP_OCCASION && draft.step < STEP_REVIEW) {
+      setStep(draft.step);
+    }
+    reset({
+      paymentProvider: "paystack",
+      recipientIsRegistered: false,
+      recipientName: draft.recipientName ?? "",
+      recipientEmail: draft.recipientEmail ?? "",
+      amountNgn: draft.amountNgn,
+      message: draft.message ?? "",
+      unlockAt: draft.unlockAt ?? "",
+    });
+  }, [draft, reset]);
 
   /**
    * Idempotency key — generated once per wizard session.
@@ -91,7 +93,7 @@ export function GiftWizard() {
     typeof crypto !== "undefined" ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`
   );
 
-  /** Saves current non-sensitive form values to sessionStorage with the given step index. */
+  /** Saves current non-sensitive form values to localStorage with the given step index. */
   function persistDraft(targetStep: number) {
     const values = getValues();
     saveDraft({
@@ -101,6 +103,7 @@ export function GiftWizard() {
       amountNgn: values.amountNgn,
       message: values.message,
       unlockAt: values.unlockAt,
+      paymentProvider: values.paymentProvider,
     });
   }
 
@@ -164,7 +167,12 @@ export function GiftWizard() {
 
         setMutationOutcome("success");
         clearDraft();
-        window.location.href = json.data.paymentUrl;
+        // Stripe uses the embedded Payment Element; Paystack uses hosted checkout.
+        if (json.data.clientSecret) {
+          setStripeCheckout({ clientSecret: json.data.clientSecret, giftId: json.data.gift.id });
+        } else {
+          window.location.href = json.data.paymentUrl;
+        }
       } catch (err) {
         if (!responseReceived) {
           // No HTTP response arrived — likely a connectivity drop mid-flight.
@@ -236,6 +244,7 @@ export function GiftWizard() {
             error={errors.recipientEmail?.message}
             {...register("recipientEmail")}
           />
+          <ThemePicker value={watch("themeId")} onChange={(id) => setValue("themeId", id)} />
           <div className={styles.nav}>
             <Button variant="secondary" onClick={back}>
               Back
@@ -304,7 +313,17 @@ export function GiftWizard() {
         </div>
       )}
 
-      {step === STEP_REVIEW && (
+      {step === STEP_REVIEW && stripeCheckout && (
+        <div className={styles.stepContent}>
+          <h2 className={styles.stepTitle}>Pay with card (USD)</h2>
+          <StripePaymentForm
+            clientSecret={stripeCheckout.clientSecret}
+            giftId={stripeCheckout.giftId}
+          />
+        </div>
+      )}
+
+      {step === STEP_REVIEW && !stripeCheckout && (
         <form onSubmit={handleSubmit(onSubmit as Parameters<typeof handleSubmit>[0])} noValidate>
           <h2 className={styles.stepTitle}>Review your gift</h2>
           <GiftPreviewCard
@@ -316,12 +335,42 @@ export function GiftWizard() {
             }}
           />
 
+          <fieldset className={styles.providerGroup}>
+            <legend className={styles.stepTitle}>Payment method</legend>
+            <label className={styles.providerOption}>
+              <input
+                type="radio"
+                value="paystack"
+                {...register("paymentProvider", { onChange: () => persistDraft(STEP_UNLOCK) })}
+              />
+              <span>
+                <span className={styles.providerLabel}>Paystack — Nigeria (NGN)</span>
+                <span className={styles.providerMeta}>
+                  Card, bank transfer or USSD. Charged in NGN · 1.5% processing fee. Redirects to
+                  Paystack checkout.
+                </span>
+              </span>
+            </label>
+            <label className={styles.providerOption}>
+              <input
+                type="radio"
+                value="stripe"
+                {...register("paymentProvider", { onChange: () => persistDraft(STEP_UNLOCK) })}
+              />
+              <span>
+                <span className={styles.providerLabel}>Stripe — International (USD)</span>
+                <span className={styles.providerMeta}>
+                  Card, Apple Pay or Google Pay. Charged in USD at the locked exchange rate · 2.9% +
+                  $0.30 fee. Pay securely on this page.
+                </span>
+              </span>
+            </label>
+          </fieldset>
+
           {/* Safety notice — reminds users that payment is irreversible on-chain */}
           <ConfirmationSafetyNotice
             type="payment"
-            isTestnet={
-              (process.env.NEXT_PUBLIC_STELLAR_NETWORK ?? "testnet") !== "mainnet"
-            }
+            isTestnet={(process.env.NEXT_PUBLIC_STELLAR_NETWORK ?? "testnet") !== "mainnet"}
           />
 
           {/* Distinguish "unknown outcome" (connectivity drop mid-flight) from

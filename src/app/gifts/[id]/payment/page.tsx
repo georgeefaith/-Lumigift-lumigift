@@ -14,7 +14,7 @@
  *   - status:     Optional override (e.g. "failed" set by the callback route)
  */
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { PaymentStatusBanner } from "@/components/ui/PaymentStatusBanner";
@@ -95,6 +95,26 @@ export default function PaymentStatusPage({ params }: Props) {
     }
   }, [initialStatus, loadStatus]);
 
+  // Celebrate a confirmed payment once (issue #342). canvas-confetti is
+  // lazy-loaded (~6 KB gzip), drawn on a pointer-events:none canvas so it never
+  // blocks the action buttons, and skipped for prefers-reduced-motion.
+  const celebratedRef = useRef(false);
+  useEffect(() => {
+    if (payment?.status !== "success" || celebratedRef.current) return;
+    celebratedRef.current = true;
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    import("canvas-confetti")
+      .then(({ default: confetti }) =>
+        confetti({
+          particleCount: 80,
+          spread: 70,
+          origin: { y: 0.6 },
+          disableForReducedMotion: true,
+        })
+      )
+      .catch(() => undefined);
+  }, [payment?.status]);
+
   const handleRefresh = useCallback(async () => {
     await loadStatus();
   }, [loadStatus]);
@@ -110,7 +130,7 @@ export default function PaymentStatusPage({ params }: Props) {
     return (
       <main className={styles.page}>
         <div className={styles.container}>
-          <p className={styles.loadingMsg} aria-live="polite" aria-busy="true">
+          <p className={styles.loadingMsg} aria-live="polite" aria-atomic="true" aria-busy="true">
             Checking payment status…
           </p>
         </div>
@@ -123,7 +143,7 @@ export default function PaymentStatusPage({ params }: Props) {
     return (
       <main className={styles.page}>
         <div className={styles.container}>
-          <p className={styles.errorMsg} role="alert">
+          <p className={styles.errorMsg} role="alert" aria-live="polite" aria-atomic="true">
             {fetchError ?? "An unexpected error occurred."}
           </p>
           <button className="btn btn--secondary" onClick={loadStatus}>
