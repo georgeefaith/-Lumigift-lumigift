@@ -95,7 +95,7 @@
     "playwright": "^1.60.0",
     "react": "^19.2.6",
     "react-hook-form": "^7.87.0",
-    "redis": "^5.12.1",
+    "redis": "^6.3.0",
     "resend": "^6.26.0",
     "stripe": "^23.0.0",
     "zod": "^4.4.3"
