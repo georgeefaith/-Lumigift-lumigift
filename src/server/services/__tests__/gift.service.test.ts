@@ -55,6 +55,7 @@ import {
   createGift,
   getGiftById,
   getGiftsBySender,
+  getGiftAnalyticsBySender,
   updateGiftStatus,
   getGiftsBySenderPaginated,
   getGiftsByRecipient,
@@ -238,6 +239,76 @@ describe("getGiftsBySender", () => {
     const result = await getGiftsBySender(SENDER_ID);
     expect(result).toHaveLength(1);
     expect(result[0].senderId).toBe(SENDER_ID);
+  });
+});
+
+describe("getGiftAnalyticsBySender", () => {
+  it("calculates sender metrics from sent gifts without returning recipient data", async () => {
+    const createdAt = new Date("2026-01-01T00:00:00.000Z");
+    const claimedAt = new Date("2026-01-06T00:00:00.000Z");
+    const seedGift = (
+      id: string,
+      senderId: string,
+      status: Gift["status"],
+      amountNgn: number,
+      updatedAt: Date = createdAt,
+      giftCreatedAt: Date = createdAt
+    ) =>
+      gifts.set(id, {
+        id,
+        senderId,
+        recipientPhoneHash: "private-hash",
+        recipientName: "Private Recipient",
+        recipientEmail: "private@example.com",
+        amountNgn,
+        amountUsdc: "1.0000000",
+        unlockAt: new Date("2026-01-03T00:00:00.000Z"),
+        status,
+        createdAt: giftCreatedAt,
+        updatedAt,
+      });
+
+    seedGift("funded-gift", SENDER_ID, "funded", 5_000);
+    seedGift(
+      "claimed-gift",
+      SENDER_ID,
+      "claimed",
+      10_000,
+      claimedAt,
+      new Date("2026-01-02T00:00:00.000Z")
+    );
+    seedGift("pending-gift", SENDER_ID, "pending_payment", 20_000);
+    seedGift("cancelled-gift", SENDER_ID, "cancelled", 30_000);
+    seedGift("other-sender-gift", "other-sender", "claimed", 90_000, claimedAt);
+
+    const analytics = await getGiftAnalyticsBySender(SENDER_ID);
+
+    expect(analytics).toMatchObject({
+      totalGiftsSent: 2,
+      totalValueNgn: 15_000,
+      claimedGiftCount: 1,
+      claimRate: 50,
+      averageTimeToClaimMs: 4 * 24 * 60 * 60 * 1000,
+    });
+    expect(analytics.gifts.map((gift) => gift.id)).toEqual(["claimed-gift", "funded-gift"]);
+    expect(Object.keys(analytics.gifts[0]).sort()).toEqual(
+      ["id", "amountNgn", "status", "sentAt", "unlockAt", "claimedAt"].sort()
+    );
+    expect(analytics.gifts[0].claimedAt).toEqual(claimedAt);
+    expect(analytics.gifts[1].claimedAt).toBeNull();
+  });
+
+  it("returns zero and null metrics when a sender has no sent gifts", async () => {
+    const analytics = await getGiftAnalyticsBySender("unknown-sender");
+
+    expect(analytics).toMatchObject({
+      totalGiftsSent: 0,
+      totalValueNgn: 0,
+      claimedGiftCount: 0,
+      claimRate: 0,
+      averageTimeToClaimMs: null,
+      gifts: [],
+    });
   });
 });
 
