@@ -8,9 +8,15 @@ import { GiftCardSkeleton } from "@/components/gift/GiftCardSkeleton";
 import { OfflineBanner } from "@/components/ui/OfflineBanner";
 import styles from "./page.module.css";
 import type { ApiResponse } from "@/types";
-import type { GiftPage } from "@/server/services/gift.service";
+import type { GiftAnalytics, GiftPage } from "@/server/services/gift.service";
+import { formatNGN } from "@/lib/currency";
 
 const PAGE_SIZE = 10;
+const DATE_FORMATTER = new Intl.DateTimeFormat(undefined, {
+  year: "numeric",
+  month: "short",
+  day: "numeric",
+});
 
 async function fetchGiftsCursor(cursor: string | null, pageSize: number): Promise<GiftPage> {
   const params = new URLSearchParams({ pageSize: String(pageSize) });
@@ -19,6 +25,32 @@ async function fetchGiftsCursor(cursor: string | null, pageSize: number): Promis
   const json: ApiResponse<GiftPage> = await res.json();
   if (!json.success) throw new Error(json.error);
   return json.data;
+}
+
+async function fetchGiftAnalytics(): Promise<GiftAnalytics> {
+  const res = await fetch("/api/v1/gifts/analytics");
+  const json: ApiResponse<GiftAnalytics> = await res.json();
+  if (!json.success) throw new Error(json.error);
+  return json.data;
+}
+
+function formatDuration(milliseconds: number | null): string {
+  if (milliseconds === null) return "Not yet available";
+  const hours = Math.round(milliseconds / (60 * 60 * 1000));
+  if (hours < 24) return `${hours}h`;
+  return `${Math.round(hours / 24)}d`;
+}
+
+function formatDate(value: Date | string): string {
+  return DATE_FORMATTER.format(new Date(value));
+}
+
+function statusLabel(status: GiftAnalytics["gifts"][number]["status"]): string {
+  if (status === "claimed") return "Claimed";
+  if (status === "expired") return "Expired";
+  if (status === "unlocked") return "Ready to claim";
+  if (status === "funded" || status === "locked") return "Awaiting unlock";
+  return status;
 }
 
 export default function DashboardPage() {
@@ -32,6 +64,15 @@ export default function DashboardPage() {
   const { data, status, isFetching, isStale, refetch } = useQuery({
     queryKey: ["gifts", "cursor", cursor],
     queryFn: () => fetchGiftsCursor(cursor, PAGE_SIZE),
+  });
+  const {
+    data: analytics,
+    status: analyticsStatus,
+    refetch: refetchAnalytics,
+  } = useQuery({
+    queryKey: ["gift-analytics"],
+    queryFn: fetchGiftAnalytics,
+    refetchInterval: 30_000,
   });
 
   const canGoNext = Boolean(data?.nextCursor) && !isFetching;
@@ -99,6 +140,112 @@ export default function DashboardPage() {
       <div className="container">
         <OfflineBanner />
         <h1 className={styles.title}>Your Gifts</h1>
+
+        <section className={styles.analytics} aria-labelledby="analytics-title">
+          <div className={styles.analyticsHeader}>
+            <h2 id="analytics-title" className={styles.analyticsTitle}>
+              Gift analytics
+            </h2>
+            <span className={styles.refreshNote}>Updates every 30 seconds</span>
+          </div>
+
+          {analyticsStatus === "pending" ? (
+            <p className={styles.analyticsMessage} role="status" aria-busy="true">
+              Loading gift analytics…
+            </p>
+          ) : analyticsStatus === "error" ? (
+            <div className={styles.analyticsError} role="alert">
+              <p>Gift analytics could not be loaded.</p>
+              <button className="btn btn--secondary" onClick={() => refetchAnalytics()}>
+                Retry
+              </button>
+            </div>
+          ) : analytics ? (
+            <>
+              <div className={styles.metrics}>
+                <div className={styles.metric}>
+                  <span className={styles.metricLabel}>Gifts sent</span>
+                  <strong className={styles.metricValue}>{analytics.totalGiftsSent}</strong>
+                </div>
+                <div className={styles.metric}>
+                  <span className={styles.metricLabel}>Total value</span>
+                  <strong className={styles.metricValue}>
+                    {formatNGN(analytics.totalValueNgn)}
+                  </strong>
+                </div>
+                <div className={styles.metric}>
+                  <span className={styles.metricLabel}>Claim rate</span>
+                  <strong className={styles.metricValue}>{Math.round(analytics.claimRate)}%</strong>
+                </div>
+                <div className={styles.metric}>
+                  <span className={styles.metricLabel}>Avg. time to claim</span>
+                  <strong className={styles.metricValue}>
+                    {formatDuration(analytics.averageTimeToClaimMs)}
+                  </strong>
+                </div>
+              </div>
+
+              <div className={styles.claimChart}>
+                <div className={styles.chartHeading}>
+                  <h3>Claimed gifts</h3>
+                  <span>
+                    {analytics.claimedGiftCount} of {analytics.totalGiftsSent}
+                  </span>
+                </div>
+                <div
+                  className={styles.chartTrack}
+                  role="img"
+                  aria-label={`${analytics.claimedGiftCount} of ${analytics.totalGiftsSent} gifts claimed`}
+                >
+                  <span
+                    className={styles.chartClaimed}
+                    style={{ width: `${analytics.claimRate}%` }}
+                  />
+                </div>
+              </div>
+
+              <div className={styles.analyticsListSection}>
+                <h3 className={styles.listTitle}>Gift activity</h3>
+                {analytics.gifts.length === 0 ? (
+                  <p className={styles.analyticsMessage}>Sent gift activity will appear here.</p>
+                ) : (
+                  <div className={styles.analyticsList}>
+                    {analytics.gifts.map((gift) => (
+                      <article className={styles.analyticsRow} key={gift.id}>
+                        <div className={styles.giftAmount}>
+                          <strong>{formatNGN(gift.amountNgn)}</strong>
+                          <span>{statusLabel(gift.status)}</span>
+                        </div>
+                        <div className={styles.giftDate}>
+                          <span>Sent</span>
+                          <time dateTime={new Date(gift.sentAt).toISOString()}>
+                            {formatDate(gift.sentAt)}
+                          </time>
+                        </div>
+                        <div className={styles.giftDate}>
+                          <span>Unlocks</span>
+                          <time dateTime={new Date(gift.unlockAt).toISOString()}>
+                            {formatDate(gift.unlockAt)}
+                          </time>
+                        </div>
+                        <div className={styles.giftDate}>
+                          <span>Claimed</span>
+                          {gift.claimedAt ? (
+                            <time dateTime={new Date(gift.claimedAt).toISOString()}>
+                              {formatDate(gift.claimedAt)}
+                            </time>
+                          ) : (
+                            <span className={styles.pendingDate}>Pending</span>
+                          )}
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </>
+          ) : null}
+        </section>
 
         {/* Stale/background-revalidation banner */}
         {isStale && isFetching && (

@@ -287,6 +287,60 @@ export async function getGiftsBySender(senderId: string): Promise<Gift[]> {
   return activeGifts().filter((g) => g.senderId === senderId);
 }
 
+export interface GiftAnalyticsItem {
+  id: string;
+  amountNgn: number;
+  status: GiftStatus;
+  sentAt: Date;
+  unlockAt: Date;
+  claimedAt: Date | null;
+}
+
+export interface GiftAnalytics {
+  totalGiftsSent: number;
+  totalValueNgn: number;
+  claimedGiftCount: number;
+  claimRate: number;
+  averageTimeToClaimMs: number | null;
+  gifts: GiftAnalyticsItem[];
+}
+
+/** Returns sender-owned gift metrics and PII-free lifecycle details. */
+export async function getGiftAnalyticsBySender(senderId: string): Promise<GiftAnalytics> {
+  const sentGifts = [...gifts.values()].filter(
+    (gift) =>
+      gift.senderId === senderId &&
+      ["funded", "locked", "unlocked", "claimed", "expired"].includes(gift.status)
+  );
+  const claimedGifts = sentGifts.filter((gift) => gift.status === "claimed");
+  const totalGiftsSent = sentGifts.length;
+  const claimedDurationMs = claimedGifts.map(
+    (gift) => gift.updatedAt.getTime() - gift.createdAt.getTime()
+  );
+
+  return {
+    totalGiftsSent,
+    totalValueNgn: sentGifts.reduce((total, gift) => total + gift.amountNgn, 0),
+    claimedGiftCount: claimedGifts.length,
+    claimRate: totalGiftsSent === 0 ? 0 : (claimedGifts.length / totalGiftsSent) * 100,
+    averageTimeToClaimMs:
+      claimedDurationMs.length === 0
+        ? null
+        : claimedDurationMs.reduce((total, duration) => total + duration, 0) /
+          claimedDurationMs.length,
+    gifts: sentGifts
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .map((gift) => ({
+        id: gift.id,
+        amountNgn: gift.amountNgn,
+        status: gift.status,
+        sentAt: gift.createdAt,
+        unlockAt: gift.unlockAt,
+        claimedAt: gift.status === "claimed" ? gift.updatedAt : null,
+      })),
+  };
+}
+
 /** Paginated result for {@link getGiftsBySenderPaginated}. */
 export interface GiftPage {
   gifts: Gift[];
