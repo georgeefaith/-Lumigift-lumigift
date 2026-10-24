@@ -8,6 +8,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-purple.svg)](LICENSE)
 [![Built on Stellar](https://img.shields.io/badge/Built%20on-Stellar-blue)](https://stellar.org)
 [![Soroban](https://img.shields.io/badge/Smart%20Contracts-Soroban-blueviolet)](https://developers.stellar.org/docs/build/smart-contracts)
+[![Status](https://img.shields.io/badge/status-page-green)](https://status.lumigift.app)
 
 ---
 
@@ -196,6 +197,29 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000).
 
+### Storybook (isolated component development)
+
+Lumigift uses [Storybook](https://storybook.js.org/) to develop and review UI
+components in isolation. Stories exist for `Button`, `Input`, `Badge`,
+`GiftCard`, `ClaimButton`, and `Dialog` under `src/components/**/*.stories.tsx`.
+
+```bash
+# Install Storybook dependencies (one-time)
+npx storybook init
+
+# Start the Storybook dev server on port 6006
+npm run storybook
+
+# Build the static Storybook bundle (used by CI)
+npm run storybook:build
+```
+
+The static build output is written to `storybook-static/`. Chromatic visual
+diffing can be enabled by adding the `chromatic` addon and a `CHROMATIC_TOKEN`
+secret to CI.
+
+---
+
 ### Smart Contract
 
 ```bash
@@ -240,12 +264,12 @@ npx stryker run --mutate "src/server/services/gift.service.ts,src/lib/escrow-cli
 
 See `stryker.config.js`. Key settings:
 
-| Option               | Value                               |
-| -------------------- | ----------------------------------- |
-| `thresholds.break`   | `70` — CI fails below this score    |
-| `thresholds.low`     | `70` — score is highlighted in red  |
-| `thresholds.high`    | `80` — score is highlighted in green|
-| High-priority files  | `gift.service.ts`, `escrow-client.ts` |
+| Option              | Value                                 |
+| ------------------- | ------------------------------------- |
+| `thresholds.break`  | `70` — CI fails below this score      |
+| `thresholds.low`    | `70` — score is highlighted in red    |
+| `thresholds.high`   | `80` — score is highlighted in green  |
+| High-priority files | `gift.service.ts`, `escrow-client.ts` |
 
 HTML reports are saved to `reports/mutation/` and uploaded as CI artifacts.
 

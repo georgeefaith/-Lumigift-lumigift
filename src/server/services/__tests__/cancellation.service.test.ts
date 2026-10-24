@@ -125,4 +125,50 @@ describe("cancelGiftForSender", () => {
     expect(err.httpStatus).toBe(409);
     expect(mockRefund).not.toHaveBeenCalled();
   });
+
+  it("initiates an escrow refund when cancelling a locked gift", async () => {
+    const gift = makeGift({ status: "locked" });
+    mockRefund.mockResolvedValue({ status: "processed" });
+    mockCancel.mockResolvedValue({ ...gift, status: "cancelled", refundStatus: "processed" });
+
+    const result = await cancelGiftForSender(gift);
+
+    expect(mockRefund).toHaveBeenCalledTimes(1);
+    expect(mockCancel).toHaveBeenCalledWith("gift-1", "processed");
+    expect(result.status).toBe("cancelled");
+  });
+
+  it.each(["claimed", "cancelled"] as const)(
+    "returns 409 when the gift is already %s",
+    async (status) => {
+      const err = await cancelGiftForSender(makeGift({ status })).catch((e) => e);
+      expect(err.httpStatus).toBe(409);
+      expect(mockCancel).not.toHaveBeenCalled();
+    }
+  );
+
+  it("retries idempotently after a failure during transaction submission", async () => {
+    const gift = makeGift({ status: "locked" });
+    mockRefund
+      .mockRejectedValueOnce(new Error("tx submission timeout"))
+      .mockResolvedValueOnce({ status: "pending" });
+    mockCancel.mockResolvedValue({ ...gift, status: "cancelled", refundStatus: "pending" });
+
+    await expect(cancelGiftForSender(gift)).rejects.toMatchObject({ code: "REFUND_FAILED" });
+    expect(mockCancel).not.toHaveBeenCalled();
+
+    const result = await cancelGiftForSender(gift);
+
+    // Same provider reference on both attempts so the refund is not duplicated
+    expect(mockRefund).toHaveBeenNthCalledWith(1, "lumigift_gift-1");
+    expect(mockRefund).toHaveBeenNthCalledWith(2, "lumigift_gift-1");
+    expect(mockCancel).toHaveBeenCalledTimes(1);
+    expect(result.status).toBe("cancelled");
+  });
+
+  it("returns 404 when the gift disappears before the status update", async () => {
+    mockCancel.mockResolvedValue(null);
+    const err = await cancelGiftForSender(makeGift({ status: "pending_payment" })).catch((e) => e);
+    expect(err.httpStatus).toBe(404);
+  });
 });

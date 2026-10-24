@@ -1,8 +1,11 @@
 // ─── User ─────────────────────────────────────────────────────────────────────
+export type AccountType = "personal" | "business";
+
 export interface User {
   id: string;
   phone: string;
   displayName: string;
+  accountType: AccountType;
   email?: string;
   avatarUrl?: string;
   stellarPublicKey?: string;
@@ -18,8 +21,16 @@ export type GiftStatus =
   | "locked"
   | "unlocked"
   | "claimed"
+  | "expired_pending_refund"
   | "expired"
   | "cancelled";
+
+/** Recipient's one-time reaction to a claimed gift (issue #343). */
+export interface GiftReactionSummary {
+  emoji: string;
+  message?: string;
+  createdAt: Date;
+}
 
 export interface Gift {
   id: string;
@@ -32,6 +43,8 @@ export interface Gift {
   amountUsdc: string; // on-chain amount as string to preserve precision
   message?: string;
   mediaUrl?: string;
+  /** Background theme id selected in the gift wizard (see lib/giftThemes). */
+  themeId?: string;
   unlockAt: Date;
   status: GiftStatus;
   contractId?: string; // Soroban escrow contract instance
@@ -39,8 +52,11 @@ export interface Gift {
   claimTxHash?: string; // claim transaction hash
   cancelledAt?: Date; // set when the sender cancels the gift
   refundStatus?: RefundStatus; // refund progress after cancellation
+  reaction?: GiftReactionSummary; // recipient's thank-you reaction (issue #343)
   createdAt: Date;
   updatedAt: Date;
+  /** Soft-delete timestamp. NULL = active. Set by softDeleteGift(). */
+  deletedAt?: Date;
 }
 
 /**
@@ -152,14 +168,26 @@ export interface MessageReport {
 // ─── Support (#152) ────────────────────────────────────────────────────────────
 export type SupportCaseStatus = "open" | "in_progress" | "resolved" | "closed";
 
+export interface SupportCaseMessage {
+  id: string;
+  author: "user" | "agent";
+  body: string;
+  createdAt: Date;
+}
+
 export interface SupportCase {
   id: string;
   caseReference: string;
   userId: string;
-  giftId: string;
+  /** Gift the case relates to; omitted for general enquiries opened from the support widget. */
+  giftId?: string;
   reason: string;
   details?: string;
   status: SupportCaseStatus;
+  /** Conversation thread between the user and support agents. */
+  messages: SupportCaseMessage[];
+  /** True when an agent has replied since the user last viewed the case. */
+  hasUnreadReply: boolean;
   createdAt: Date;
   updatedAt: Date;
 }

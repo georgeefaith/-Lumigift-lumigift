@@ -56,22 +56,31 @@ variable "ops_alert_email" {
   default     = "ops@lumigift.app"
 }
 
-# ─── #292: Terraform remote state + OIDC variables ───────────────────────────
+# ─── #335: Vercel variables ──────────────────────────────────────────────────
 
-variable "github_org" {
-  description = "GitHub organisation or user that owns the repository (used to scope the OIDC trust policy)"
+variable "vercel_team_id" {
+  description = "Vercel team ID or slug that owns the project"
   type        = string
-  default     = "joekeyz8"
 }
 
-variable "github_repo" {
-  description = "GitHub repository name (used to scope the OIDC trust policy)"
+variable "vercel_project_name" {
+  description = "Vercel project name"
   type        = string
-  default     = "Lumigift-lumigift"
+  default     = "lumigift"
 }
 
-variable "tf_state_kms_key_id" {
-  description = "Pre-created KMS key ID for Terraform state encryption. Must be bootstrapped before the first `terraform init`. Supply via TF_VAR_tf_state_kms_key_id env var."
+variable "vercel_git_repo" {
+  description = "GitHub repository linked to the Vercel project (owner/name)"
   type        = string
-  # No default — this must be set explicitly to prevent accidental unencrypted state.
+}
+
+variable "vercel_env_secret_id" {
+  description = "AWS Secrets Manager secret ID holding Vercel env var values as a JSON object"
+  type        = string
+}
+
+variable "vercel_env_keys" {
+  description = "Environment variable keys managed on the Vercel project; values come from vercel_env_secret_id"
+  type        = list(string)
+  default     = []
 }

@@ -103,3 +103,13 @@
     font-size: var(--text-lg);
   }
 }
+
+.reaction {
+  margin: 0.75rem 0 0;
+  font-size: 0.9375rem;
+}
+
+.reaction span {
+  font-size: 1.5rem;
+  margin-right: 0.25rem;
+}

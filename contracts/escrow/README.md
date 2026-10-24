@@ -62,16 +62,18 @@ State transitions:
 
 ## Error Codes
 
-| Variant              | Code | When raised                                                               |
-| -------------------- | ---- | ------------------------------------------------------------------------- |
-| `AlreadyInitialized` | 1    | `initialize` called on an already-initialized contract                    |
-| `AlreadyClaimed`     | 2    | `claim` called after funds were already claimed                           |
-| `StillLocked`        | 3    | `claim` called before `unlock_time` has passed                            |
-| `NotInitialized`     | 4    | Any function requiring state called before `initialize`                   |
-| `Unauthorized`       | 5    | Reserved for future access-control checks                                 |
-| `AlreadyCancelled`   | 6    | Reserved for future cancellation logic                                    |
-| `InvalidAmount`      | 7    | `amount` is below `MIN_AMOUNT` (10 000 000 stroops)                       |
-| `InvalidUnlockTime`  | 8    | `unlock_time` is not at least `MIN_LOCK_DURATION` (3 600 s) in the future |
+| Variant               | Code | When raised                                                               |
+| --------------------- | ---- | ------------------------------------------------------------------------- |
+| `AlreadyInitialized`  | 1    | `initialize` called on an already-initialized contract                    |
+| `AlreadyClaimed`      | 2    | `claim` called after funds were already claimed                           |
+| `StillLocked`         | 3    | `claim` called before `unlock_time` has passed                            |
+| `NotInitialized`      | 4    | Any function requiring state called before `initialize`                   |
+| `Unauthorized`        | 5    | Reserved for future access-control checks                                 |
+| `AlreadyCancelled`    | 6    | Reserved for future cancellation logic                                    |
+| `InvalidAmount`       | 7    | `amount` is below `MIN_AMOUNT` (10 000 000 stroops)                       |
+| `InvalidUnlockTime`   | 8    | `unlock_time` is not at least `MIN_LOCK_DURATION` (3 600 s) in the future |
+| `InvalidToken`        | 9    | `token` is not the canonical USDC contract for the network                |
+| `InsufficientBalance` | 10   | Sender's USDC balance is below `amount` in `initialize`                   |
 
 ---
 
@@ -153,4 +155,3 @@ cd contracts && cargo test --locked double_claim
 - All CI and local test/build runs must use `--locked`.
 - Security vulnerabilities are audited via `cargo-audit` in CI.
 - For the full policy and exception procedure, see [docs/ops/cargo-lock-policy.md](../../docs/ops/cargo-lock-policy.md).
-

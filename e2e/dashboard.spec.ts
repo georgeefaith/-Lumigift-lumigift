@@ -64,12 +64,42 @@ async function mockAuthSession(page: Page) {
 async function mockGiftsList(page: Page, gifts: typeof mockGifts) {
   await page.route("**/api/v1/gifts*", (route) => {
     const url = route.request().url();
+    if (url.endsWith("/api/v1/gifts/analytics")) {
+      const claimedGifts = gifts.filter((gift) => gift.status === "claimed");
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          success: true,
+          data: {
+            totalGiftsSent: gifts.length,
+            totalValueNgn: gifts.reduce((total, gift) => total + gift.amountNgn, 0),
+            claimedGiftCount: claimedGifts.length,
+            claimRate: gifts.length === 0 ? 0 : (claimedGifts.length / gifts.length) * 100,
+            averageTimeToClaimMs: claimedGifts.length > 0 ? 86_400_000 : null,
+            gifts: gifts.map((gift) => ({
+              id: gift.id,
+              amountNgn: gift.amountNgn,
+              status: gift.status,
+              sentAt: gift.createdAt,
+              unlockAt: gift.unlockAt,
+              claimedAt: gift.status === "claimed" ? gift.createdAt : null,
+            })),
+          },
+        }),
+      });
+      return;
+    }
+
     // Only intercept the list endpoint, not individual gift fetches
     if (!url.match(/\/gifts\/[a-z0-9-]{10,}/)) {
       route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify({ success: true, data: gifts }),
+        body: JSON.stringify({
+          success: true,
+          data: { gifts, total: gifts.length, nextCursor: null },
+        }),
       });
     } else {
       route.continue();
@@ -88,6 +118,9 @@ test("dashboard shows sent gifts for authenticated user", async ({ page }) => {
   await expect(page.getByText("Alice")).toBeVisible();
   await expect(page.getByText("Bob")).toBeVisible();
   await expect(page.getByText("Carol")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Gift analytics" })).toBeVisible();
+  await expect(page.getByText("Total value")).toBeVisible();
+  await expect(page.getByText("Avg. time to claim")).toBeVisible();
 });
 
 // ─── 2. Empty state ───────────────────────────────────────────────────────────
